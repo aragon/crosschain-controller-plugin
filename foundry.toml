@@ -9,9 +9,12 @@ optimizer = true
 optimizer_runs = 200
 
 # The test suite reads its chain id / CCIP selector table from JSON. Read-only,
-# and scoped to that one directory.
+# and scoped to that one directory. `./artifacts` is writable so `CreateRepo`
+# can drop its per-deployment envelope (`artifacts-<network>-<timestamp>.json`)
+# for later ingestion into artifacts-hub.
 fs_permissions = [
     { access = "read", path = "./test/fixtures" },
+    { access = "write", path = "./artifacts" },
 ]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

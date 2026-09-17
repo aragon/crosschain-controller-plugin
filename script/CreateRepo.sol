@@ -14,6 +14,12 @@ import { CrossChainController } from "@src/CrossChainController.sol";
 /// @title CreateRepo
 /// @notice Deploys `CrossChainControllerSetup` inside PluginRepoFactory
 contract CreateRepo is Script {
+    /// @dev Slug this plugin is registered under in artifacts-hub
+    ///      (`plugins.<slug>` in `addresses/<chainId>.json`). Must match the
+    ///      catalog entry in
+    ///      `artifacts-hub/scripts/lib/plugin-catalog.ts`.
+    string internal constant PLUGIN_SLUG = "crosschain";
+
     /// @dev Pinned metadata for the initial build; update whenever a new
     ///      metadata JSON is re-pinned. Sources live in
     ///      `src/{release,build}-metadata.json`; pin them with `just ipfs-pin`.
@@ -86,5 +92,77 @@ contract CreateRepo is Script {
         console.log(
             "- ENS subdomain:                ", bytes(pluginEnsSubdomain).length == 0 ? "(none)" : pluginEnsSubdomain
         );
+
+        // Emit the artifacts-hub envelope for later ingestion. Skipped in
+        // simulations (no NETWORK_NAME wired in and no artifact to keep).
+        if (!vm.envOr("SIMULATION", false)) {
+            writeArtifact();
+        }
+    }
+
+    /// @notice Writes `artifacts/artifacts-<network>-<timestamp>.json` in the
+    ///         shape defined by `PluginArtifact` in
+    ///         `artifacts-hub/scripts/schema.ts`. The `plugin` subtree matches
+    ///         the AddressBook `Plugin` schema verbatim, so an artifacts-hub
+    ///         ingest step can merge it into `addresses/<chainId>.json` under
+    ///         `plugins.<slug>` without any per-plugin adapter code.
+    function writeArtifact() internal {
+        string memory networkName = vm.envString("NETWORK_NAME");
+        string memory timestampStr = vm.toString(block.timestamp);
+        address implementation = IPluginSetup(pluginSetup).implementation();
+
+        // Skip the `ens` field entirely when the repo was deployed without an
+        // ENS subdomain, matching the schema's `optional` treatment.
+        string memory ensLine = bytes(pluginEnsSubdomain).length == 0
+            ? ""
+            : string.concat("    \"ens\": \"", pluginEnsSubdomain, ".plugin.dao.eth\",\n");
+
+        string memory header = string.concat(
+            "{\n",
+            "  \"chainId\": ",
+            vm.toString(block.chainid),
+            ",\n",
+            "  \"network\": \"",
+            networkName,
+            "\",\n",
+            "  \"timestamp\": ",
+            timestampStr,
+            ",\n",
+            "  \"slug\": \"",
+            PLUGIN_SLUG,
+            "\",\n"
+        );
+        string memory pluginBody = string.concat(
+            "  \"plugin\": {\n",
+            "    \"repo\": \"",
+            vm.toString(address(myPluginRepo)),
+            "\",\n",
+            ensLine,
+            "    \"maintainer\": \"",
+            vm.toString(managementDao),
+            "\",\n"
+        );
+        string memory versionsBlock = string.concat(
+            "    \"versions\": [\n",
+            "      {\n",
+            "        \"release\": 1,\n",
+            "        \"build\": 1,\n",
+            "        \"setup\": \"",
+            vm.toString(pluginSetup),
+            "\",\n",
+            "        \"implementation\": \"",
+            vm.toString(implementation),
+            "\",\n",
+            "        \"current\": true\n",
+            "      }\n",
+            "    ]\n",
+            "  }\n",
+            "}\n"
+        );
+
+        string memory outPath =
+            string.concat(vm.projectRoot(), "/artifacts/artifacts-", networkName, "-", timestampStr, ".json");
+        vm.writeFile(outPath, string.concat(header, pluginBody, versionsBlock));
+        console.log("Artifact written to", outPath);
     }
 }
