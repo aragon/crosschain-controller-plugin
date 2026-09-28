@@ -21,3 +21,4 @@ report/
 lcov.info*
 
 broadcast/
+.DS_Store
